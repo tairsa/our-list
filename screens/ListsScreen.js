@@ -280,6 +280,7 @@ export default function ListsScreen({ navigation }) {
         keyExtractor={(item) => item.id}
         renderItem={renderList}
         ListEmptyComponent={<Text style={styles.empty}>No lists yet. Create your first one!</Text>}
+        contentContainerStyle={{ paddingBottom: 100 }}
       />
 
       {/* Create modal */}
