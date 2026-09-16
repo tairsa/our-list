@@ -8,6 +8,7 @@ import { supabase } from './lib/supabase';
 import LoginScreen from './screens/LoginScreen';
 import ListsScreen from './screens/ListsScreen';
 import ItemsScreen from './screens/ItemsScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -55,6 +56,11 @@ export default function App() {
             name="Items"
             component={ItemsScreen}
             options={({ route }) => ({ title: route.params.listName })}
+          />
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            options={{ title: 'Profile' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

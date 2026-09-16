@@ -218,6 +218,9 @@ export default function ListsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
+          <Text style={styles.profileButtonText}>👤</Text>
+        </TouchableOpacity>
         <Text style={styles.title}>Our List 🛒</Text>
         <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
           <Text style={styles.addButtonText}>+ New List</Text>
@@ -289,6 +292,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 24, fontWeight: 'bold' },
   addButton: { backgroundColor: '#22c55e', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  profileButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f3f4f6', justifyContent: 'center', alignItems: 'center' },
+  profileButtonText: { fontSize: 18 },
   addButtonText: { color: 'white', fontWeight: '600' },
   listItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', marginHorizontal: 16, marginTop: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2, overflow: 'hidden' },
   colorBar: { width: 6, alignSelf: 'stretch' },

@@ -22,6 +22,19 @@ export default function ItemsScreen({ route }) {
 
   useEffect(() => {
     fetchItems();
+
+    // Subscribe to real-time changes on this list's items
+    const channel = supabase
+      .channel(`items-${listId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'items', filter: `list_id=eq.${listId}` },
+        () => fetchItems()
+      )
+      .subscribe();
+
+    // Unsubscribe when leaving the screen
+    return () => supabase.removeChannel(channel);
   }, []);
 
   async function fetchItems() {
