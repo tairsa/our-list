@@ -1,14 +1,62 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard,
+  View, Text, TouchableOpacity, TextInput,
+  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { supabase } from '../lib/supabase';
+
+// Fixed category order for display
+const CATEGORY_ORDER = [
+  'פירות וירקות', 'בשרי', 'חלבי', 'דגים', 'מאפייה',
+  'קפואים', 'שימורים ויבשים', 'משקאות', 'חטיפים וממתקים',
+  'ניקיון', 'טיפוח', 'תינוקות', 'ללא קטגוריה',
+];
+
+// Transform flat items array into a flat list with section headers mixed in
+function buildSections(items) {
+  const unchecked = items.filter(i => !i.is_checked);
+  const checked = items.filter(i => i.is_checked);
+
+  // Group unchecked items by category
+  const grouped = {};
+  unchecked.forEach(item => {
+    const cat = item.category || 'ללא קטגוריה';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(item);
+  });
+
+  // Sort within each group by position, then created_at as tiebreaker
+  Object.values(grouped).forEach(group => {
+    group.sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999) || new Date(a.created_at) - new Date(b.created_at));
+  });
+
+  // Build flat array ordered by CATEGORY_ORDER, then any remaining categories
+  const orderedCategories = [
+    ...CATEGORY_ORDER.filter(c => grouped[c]),
+    ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c)),
+  ];
+
+  const flat = [];
+  orderedCategories.forEach(category => {
+    flat.push({ id: `header-${category}`, type: 'header', category });
+    grouped[category].forEach(item => flat.push({ ...item, type: 'item' }));
+  });
+
+  // Checked items at the bottom (no dragging needed there)
+  if (checked.length > 0) {
+    flat.push({ id: '__checked_header__', type: 'header', category: 'Checked ✓', isCheckedHeader: true });
+    checked.forEach(item => flat.push({ ...item, type: 'item' }));
+  }
+
+  return flat;
+}
 
 export default function ItemsScreen({ route, navigation }) {
   const { listId, listColor = '#22c55e' } = route.params;
   const [items, setItems] = useState([]);
+  const [listData, setListData] = useState([]);
   const [newItemName, setNewItemName] = useState('');
   const [adding, setAdding] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -20,7 +68,6 @@ export default function ItemsScreen({ route, navigation }) {
   const [editQuantity, setEditQuantity] = useState('');
   const [editBrand, setEditBrand] = useState('');
 
-  // Members panel
   const [membersModalVisible, setMembersModalVisible] = useState(false);
   const [members, setMembers] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -29,7 +76,6 @@ export default function ItemsScreen({ route, navigation }) {
   const swipeableRefs = useRef({});
 
   useEffect(() => {
-    // Load user, role and items
     async function init() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
@@ -46,20 +92,14 @@ export default function ItemsScreen({ route, navigation }) {
     }
     init();
 
-    // Real-time subscription — set up here so cleanup is correctly registered
     const channel = supabase
       .channel(`items-${listId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'items', filter: `list_id=eq.${listId}` },
-        () => fetchItems()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items', filter: `list_id=eq.${listId}` }, () => fetchItems())
       .subscribe();
 
     return () => supabase.removeChannel(channel);
   }, []);
 
-  // Set the people icon in the nav header
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -75,13 +115,46 @@ export default function ItemsScreen({ route, navigation }) {
       .from('items')
       .select('*')
       .eq('list_id', listId)
+      .order('position', { ascending: true })
       .order('created_at', { ascending: true });
 
-    if (error) Alert.alert('Error', error.message);
-    else setItems(data);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setItems(data);
+    setListData(buildSections(data));
   }
 
-  // ── Members ──────────────────────────────────────────────
+  // ── Drag to reorder ───────────────────────────────────────
+
+  async function handleDragEnd({ data }) {
+    // data is the new flat array after drag
+    // Figure out each item's new position and (possibly) new category
+    const updates = [];
+    let positionCounter = 0;
+    let currentCategory = null;
+
+    data.forEach(entry => {
+      if (entry.type === 'header') {
+        currentCategory = entry.isCheckedHeader ? null : entry.category;
+        positionCounter = 0;
+      } else if (entry.type === 'item' && currentCategory !== null) {
+        // Only update unchecked items — checked items keep their category
+        updates.push({ id: entry.id, position: positionCounter, category: currentCategory });
+        positionCounter++;
+      }
+    });
+
+    // Optimistically update local state
+    setListData(data);
+
+    // Persist to Supabase
+    await Promise.all(
+      updates.map(({ id, position, category }) =>
+        supabase.from('items').update({ position, category }).eq('id', id)
+      )
+    );
+  }
+
+  // ── Members ───────────────────────────────────────────────
 
   async function openMembers() {
     Keyboard.dismiss();
@@ -91,104 +164,54 @@ export default function ItemsScreen({ route, navigation }) {
   }
 
   async function fetchMembers() {
-    const { data: rows, error } = await supabase
-      .rpc('get_list_members', { p_list_id: listId });
-
+    const { data: rows, error } = await supabase.rpc('get_list_members', { p_list_id: listId });
     if (error || !rows?.length) { setMembers([]); return; }
-
     const userIds = rows.map(r => r.user_id);
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, username, display_name, avatar_url')
-      .in('id', userIds);
-
-    const combined = rows.map(r => ({
-      userId: r.user_id,
-      role: r.role,
-      profile: profiles?.find(p => p.id === r.user_id) ?? { id: r.user_id },
-    }));
-
-    setMembers(combined);
+    const { data: profiles } = await supabase.from('profiles').select('id, username, display_name, avatar_url').in('id', userIds);
+    setMembers(rows.map(r => ({ userId: r.user_id, role: r.role, profile: profiles?.find(p => p.id === r.user_id) ?? { id: r.user_id } })));
   }
 
   async function fetchFriendsNotOnList() {
     const { data: { user } } = await supabase.auth.getUser();
-
-    // Get accepted friendships
-    const { data: friendships } = await supabase
-      .from('friendships')
-      .select('requester_id, addressee_id')
-      .eq('status', 'accepted')
-      .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
-
+    const { data: friendships } = await supabase.from('friendships').select('requester_id, addressee_id').eq('status', 'accepted').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
     if (!friendships?.length) { setFriends([]); return; }
-
-    const friendIds = friendships.map(f =>
-      f.requester_id === user.id ? f.addressee_id : f.requester_id
-    );
-
-    // Get current member IDs to exclude (use RPC to bypass RLS)
-    const { data: currentMembers } = await supabase
-      .rpc('get_list_members', { p_list_id: listId });
-
+    const friendIds = friendships.map(f => f.requester_id === user.id ? f.addressee_id : f.requester_id);
+    const { data: currentMembers } = await supabase.rpc('get_list_members', { p_list_id: listId });
     const memberIds = new Set((currentMembers || []).map(m => m.user_id));
     const eligibleIds = friendIds.filter(id => !memberIds.has(id));
-
     if (!eligibleIds.length) { setFriends([]); return; }
-
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, username, display_name, avatar_url')
-      .in('id', eligibleIds);
-
+    const { data: profiles } = await supabase.from('profiles').select('id, username, display_name, avatar_url').in('id', eligibleIds);
     setFriends(profiles || []);
   }
 
-  async function addMemberToList(friendId, friendName) {
+  async function addMemberToList(friendId) {
     setAddingFriend(true);
-    const { error } = await supabase
-      .from('list_members')
-      .insert({ list_id: listId, user_id: friendId, role: 'member' });
-
+    const { error } = await supabase.from('list_members').insert({ list_id: listId, user_id: friendId, role: 'member' });
     if (error) Alert.alert('Error', error.message);
-    else {
-      await fetchMembers();
-      await fetchFriendsNotOnList();
-    }
+    else { await fetchMembers(); await fetchFriendsNotOnList(); }
     setAddingFriend(false);
   }
 
   async function removeMember(userId, name) {
-    if (userId === currentUser?.id) return; // handled by Leave in Lists screen
-
+    if (userId === currentUser?.id) return;
     Alert.alert('Remove Member', `Remove ${name} from this list?`, [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove', style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase
-            .rpc('remove_list_member', { p_list_id: listId, p_user_id: userId });
-
-          if (error) Alert.alert('Error', error.message);
-          else { await fetchMembers(); await fetchFriendsNotOnList(); }
-        },
-      },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.rpc('remove_list_member', { p_list_id: listId, p_user_id: userId });
+        if (error) Alert.alert('Error', error.message);
+        else { await fetchMembers(); await fetchFriendsNotOnList(); }
+      }},
     ]);
   }
 
   async function promoteToManager(userId, name) {
     Alert.alert('Promote to Manager', `Make ${name} a manager of this list?`, [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Promote',
-        onPress: async () => {
-          const { error } = await supabase
-            .rpc('promote_list_member', { p_list_id: listId, p_user_id: userId });
-
-          if (error) Alert.alert('Error', error.message);
-          else await fetchMembers();
-        },
-      },
+      { text: 'Promote', onPress: async () => {
+        const { error } = await supabase.rpc('promote_list_member', { p_list_id: listId, p_user_id: userId });
+        if (error) Alert.alert('Error', error.message);
+        else await fetchMembers();
+      }},
     ]);
   }
 
@@ -197,45 +220,33 @@ export default function ItemsScreen({ route, navigation }) {
   async function addItem() {
     if (!newItemName.trim()) return;
     setAdding(true);
-
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Insert and get the new item's ID back
+    // Position: send to end of unchecked items
+    const uncheckedCount = items.filter(i => !i.is_checked).length;
+
     const { data: newItem, error } = await supabase
       .from('items')
-      .insert({ list_id: listId, name: newItemName.trim(), is_checked: false, added_by: user.id })
+      .insert({ list_id: listId, name: newItemName.trim(), is_checked: false, added_by: user.id, position: uncheckedCount })
       .select()
       .single();
-
-    console.log('Insert result:', JSON.stringify(newItem), JSON.stringify(error));
 
     if (error) {
       Alert.alert('Error', error.message);
     } else {
       setNewItemName('');
       fetchItems();
-
       if (newItem?.id) {
-        console.log('Calling categorize-item for:', newItem.name, newItem.id);
         supabase.functions.invoke('categorize-item', {
           body: { item_name: newItem.name, item_id: newItem.id },
-        }).then(({ data, error: fnErr }) => {
-          console.log('Categorize response:', JSON.stringify(data), JSON.stringify(fnErr));
-        }).catch((err) => console.log('Categorize fetch error:', err));
-      } else {
-        console.log('newItem is null — skipping categorization');
+        }).catch((err) => console.log('Categorize error:', err));
       }
     }
-
     setAdding(false);
   }
 
   async function toggleItem(item) {
-    const { error } = await supabase
-      .from('items')
-      .update({ is_checked: !item.is_checked })
-      .eq('id', item.id);
-
+    const { error } = await supabase.from('items').update({ is_checked: !item.is_checked }).eq('id', item.id);
     if (error) Alert.alert('Error', error.message);
     else fetchItems();
   }
@@ -253,11 +264,7 @@ export default function ItemsScreen({ route, navigation }) {
 
   async function saveEdit() {
     if (!editName.trim()) return;
-    const { error } = await supabase
-      .from('items')
-      .update({ name: editName.trim(), quantity: editQuantity.trim() || null, brand: editBrand.trim() || null })
-      .eq('id', editingItem.id);
-
+    const { error } = await supabase.from('items').update({ name: editName.trim(), quantity: editQuantity.trim() || null, brand: editBrand.trim() || null }).eq('id', editingItem.id);
     if (error) Alert.alert('Error', error.message);
     else { setEditModalVisible(false); setEditingItem(null); fetchItems(); }
   }
@@ -266,14 +273,11 @@ export default function ItemsScreen({ route, navigation }) {
     closeSwipeable(item.id);
     Alert.alert('Delete Item', `Remove "${item.name}" from the list?`, [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase.from('items').delete().eq('id', item.id);
-          if (error) Alert.alert('Error', error.message);
-          else fetchItems();
-        },
-      },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('items').delete().eq('id', item.id);
+        if (error) Alert.alert('Error', error.message);
+        else fetchItems();
+      }},
     ]);
   }
 
@@ -281,9 +285,7 @@ export default function ItemsScreen({ route, navigation }) {
 
   function Avatar({ profile, size = 40 }) {
     const initial = (profile?.display_name || profile?.username || '?')[0].toUpperCase();
-    if (profile?.avatar_url) {
-      return <Image source={{ uri: profile.avatar_url }} style={{ width: size, height: size, borderRadius: size / 2 }} />;
-    }
+    if (profile?.avatar_url) return <Image source={{ uri: profile.avatar_url }} style={{ width: size, height: size, borderRadius: size / 2 }} />;
     return (
       <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: listColor, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={{ color: 'white', fontWeight: '700', fontSize: size * 0.38 }}>{initial}</Text>
@@ -291,93 +293,83 @@ export default function ItemsScreen({ route, navigation }) {
     );
   }
 
-  function renderLeftActions(item) {
-    return (
-      <TouchableOpacity style={styles.actionDelete} onPress={() => handleDelete(item)}>
-        <Text style={styles.actionText}>Delete</Text>
-      </TouchableOpacity>
-    );
-  }
-
-  function renderRightActions(item) {
-    return (
-      <TouchableOpacity style={styles.actionEdit} onPress={() => handleEdit(item)}>
-        <Text style={styles.actionText}>Edit</Text>
-      </TouchableOpacity>
-    );
-  }
-
-  function renderItem({ item }) {
-    const isChecked = item.is_checked;
-    return (
-      <Swipeable
-        ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
-        renderLeftActions={() => renderLeftActions(item)}
-        renderRightActions={() => renderRightActions(item)}
-        overshootLeft={false}
-        overshootRight={false}
-      >
-        <TouchableOpacity
-          style={[styles.tableRow, isChecked && styles.tableRowChecked]}
-          onPress={() => toggleItem(item)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.cellName}>
-            <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
-              {isChecked && <Text style={styles.checkmark}>✓</Text>}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
-                {item.name}
-              </Text>
-              {item.category && item.category !== 'ללא קטגוריה' && (
-                <Text style={styles.categoryTag}>{item.category}</Text>
-              )}
-            </View>
-          </View>
-          <View style={styles.cellQty}>
-            <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.quantity || ''}</Text>
-          </View>
-          <View style={styles.cellBrand}>
-            <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.brand || ''}</Text>
-          </View>
-        </TouchableOpacity>
-      </Swipeable>
-    );
-  }
-
-  const unchecked = items.filter(i => !i.is_checked);
-  const checked = items.filter(i => i.is_checked);
-  const listData = [
-    ...unchecked,
-    ...(checked.length > 0 ? [{ id: '__divider__', isDivider: true }] : []),
-    ...checked,
-  ];
-
-  function renderRow({ item }) {
-    if (item.isDivider) {
+  function renderRow({ item, drag, isActive }) {
+    // Section headers are not draggable
+    if (item.type === 'header') {
       return (
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionText}>Checked</Text>
+        <View style={[styles.sectionRow, item.isCheckedHeader && { backgroundColor: '#f0fdf4' }]}>
+          <Text style={styles.sectionText}>{item.category}</Text>
         </View>
       );
     }
-    return renderItem({ item });
+
+    const isChecked = item.is_checked;
+    return (
+      <ScaleDecorator>
+        <Swipeable
+          ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
+          renderLeftActions={() => (
+            <TouchableOpacity style={styles.actionDelete} onPress={() => handleDelete(item)}>
+              <Text style={styles.actionText}>Delete</Text>
+            </TouchableOpacity>
+          )}
+          renderRightActions={() => (
+            <TouchableOpacity style={styles.actionEdit} onPress={() => handleEdit(item)}>
+              <Text style={styles.actionText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+          overshootLeft={false}
+          overshootRight={false}
+        >
+          <TouchableOpacity
+            style={[styles.tableRow, isChecked && styles.tableRowChecked, isActive && styles.tableRowDragging]}
+            onPress={() => toggleItem(item)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.cellName}>
+              <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
+                {isChecked && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
+                  {item.name}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.cellQty}>
+              <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.quantity || ''}</Text>
+            </View>
+            <View style={styles.cellBrand}>
+              <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.brand || ''}</Text>
+            </View>
+            {/* Drag handle — only for unchecked items */}
+            {!isChecked && (
+              <TouchableOpacity onLongPress={drag} style={styles.dragHandle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.dragIcon}>≡</Text>
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        </Swipeable>
+      </ScaleDecorator>
+    );
   }
 
   return (
     <View style={styles.container}>
       <View style={styles.tableWrapper}>
+        {/* Table header */}
         <View style={[styles.tableHeader, { backgroundColor: listColor + '18' }]}>
           <View style={styles.cellName}><Text style={styles.headerText}>Item</Text></View>
           <View style={styles.cellQty}><Text style={styles.headerText}>Qty</Text></View>
           <View style={styles.cellBrand}><Text style={styles.headerText}>Brand</Text></View>
+          <View style={styles.cellDrag} />
         </View>
 
-        <FlatList
+        <DraggableFlatList
           data={listData}
           keyExtractor={(item) => item.id}
           renderItem={renderRow}
+          onDragEnd={handleDragEnd}
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={styles.emptyRow}>
@@ -387,10 +379,7 @@ export default function ItemsScreen({ route, navigation }) {
         />
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
@@ -401,17 +390,13 @@ export default function ItemsScreen({ route, navigation }) {
             returnKeyType="done"
             blurOnSubmit={false}
           />
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: listColor }, adding && styles.disabled]}
-            onPress={addItem}
-            disabled={adding}
-          >
+          <TouchableOpacity style={[styles.addButton, { backgroundColor: listColor }, adding && styles.disabled]} onPress={addItem} disabled={adding}>
             <Text style={styles.addButtonText}>Add</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* Edit Item Modal */}
+      {/* Edit Modal */}
       <Modal visible={editModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalOverlay}>
@@ -437,77 +422,65 @@ export default function ItemsScreen({ route, navigation }) {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '85%' }]}>
             <Text style={styles.modalTitle}>Members</Text>
-
-            {/* Current members */}
-            {members.map(m => {
-              const name = m.profile?.display_name || m.profile?.username || 'Unknown';
-              const sub = m.profile?.username ? `@${m.profile.username}` : '';
-              const isMe = m.userId === currentUser?.id;
-              return (
-                <View key={m.userId} style={styles.memberRow}>
-                  <Avatar profile={m.profile} size={40} />
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{name}{isMe ? ' (you)' : ''}</Text>
-                    {sub ? <Text style={styles.memberSub}>{sub}</Text> : null}
-                  </View>
-                  <View style={[styles.roleBadge, m.role === 'manager' && { backgroundColor: listColor + '22' }]}>
-                    <Text style={[styles.roleText, m.role === 'manager' && { color: listColor }]}>
-                      {m.role}
-                    </Text>
-                  </View>
-                  {myRole === 'manager' && !isMe && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      {m.role === 'member' && (
-                        <TouchableOpacity onPress={() => promoteToManager(m.userId, name)} style={styles.promoteBtn}>
-                          <Text style={styles.promoteBtnText}>★</Text>
+            <ScrollView>
+              {members.map(m => {
+                const name = m.profile?.display_name || m.profile?.username || 'Unknown';
+                const sub = m.profile?.username ? `@${m.profile.username}` : '';
+                const isMe = m.userId === currentUser?.id;
+                return (
+                  <View key={m.userId} style={styles.memberRow}>
+                    <Avatar profile={m.profile} size={40} />
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>{name}{isMe ? ' (you)' : ''}</Text>
+                      {sub ? <Text style={styles.memberSub}>{sub}</Text> : null}
+                    </View>
+                    <View style={[styles.roleBadge, m.role === 'manager' && { backgroundColor: listColor + '22' }]}>
+                      <Text style={[styles.roleText, m.role === 'manager' && { color: listColor }]}>{m.role}</Text>
+                    </View>
+                    {myRole === 'manager' && !isMe && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {m.role === 'member' && (
+                          <TouchableOpacity onPress={() => promoteToManager(m.userId, name)} style={styles.promoteBtn}>
+                            <Text style={styles.promoteBtnText}>★</Text>
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity onPress={() => removeMember(m.userId, name)} style={styles.removeBtn}>
+                          <Text style={styles.removeBtnText}>✕</Text>
                         </TouchableOpacity>
-                      )}
-                      <TouchableOpacity onPress={() => removeMember(m.userId, name)} style={styles.removeBtn}>
-                        <Text style={styles.removeBtnText}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-
-            {/* Add friends section */}
-            {myRole === 'manager' && friends.length > 0 && (
-              <>
-                <Text style={styles.addFriendLabel}>Add from friends</Text>
-                {friends.map(f => {
-                  const name = f.display_name || f.username || 'Unknown';
-                  const sub = f.username ? `@${f.username}` : '';
-                  return (
-                    <View key={f.id} style={styles.memberRow}>
-                      <Avatar profile={f} size={40} />
-                      <View style={styles.memberInfo}>
-                        <Text style={styles.memberName}>{name}</Text>
-                        {sub ? <Text style={styles.memberSub}>{sub}</Text> : null}
                       </View>
-                      <TouchableOpacity
-                        onPress={() => addMemberToList(f.id, name)}
-                        disabled={addingFriend}
-                        style={[styles.addFriendBtn, { backgroundColor: listColor }]}
-                      >
-                        <Text style={styles.addFriendBtnText}>+ Add</Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-              </>
-            )}
+                    )}
+                  </View>
+                );
+              })}
 
-            {myRole === 'manager' && friends.length === 0 && (
-              <Text style={styles.noFriendsHint}>
-                All your friends are already on this list, or you have no friends yet. Add friends from the Friends screen.
-              </Text>
-            )}
+              {myRole === 'manager' && friends.length > 0 && (
+                <>
+                  <Text style={styles.addFriendLabel}>Add from friends</Text>
+                  {friends.map(f => {
+                    const name = f.display_name || f.username || 'Unknown';
+                    const sub = f.username ? `@${f.username}` : '';
+                    return (
+                      <View key={f.id} style={styles.memberRow}>
+                        <Avatar profile={f} size={40} />
+                        <View style={styles.memberInfo}>
+                          <Text style={styles.memberName}>{name}</Text>
+                          {sub ? <Text style={styles.memberSub}>{sub}</Text> : null}
+                        </View>
+                        <TouchableOpacity onPress={() => addMemberToList(f.id)} disabled={addingFriend} style={[styles.addFriendBtn, { backgroundColor: listColor }]}>
+                          <Text style={styles.addFriendBtnText}>+ Add</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
 
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={() => setMembersModalVisible(false)}
-            >
+              {myRole === 'manager' && friends.length === 0 && (
+                <Text style={styles.noFriendsHint}>All your friends are already on this list, or you have no friends yet.</Text>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setMembersModalVisible(false)}>
               <Text style={styles.closeBtnText}>Done</Text>
             </TouchableOpacity>
           </View>
@@ -525,10 +498,12 @@ const styles = StyleSheet.create({
   headerText: { fontSize: 11, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.6 },
   tableRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', minHeight: 52 },
   tableRowChecked: { backgroundColor: '#f0fdf4' },
+  tableRowDragging: { backgroundColor: '#f0f9ff', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },
 
   cellName: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderRightWidth: 1, borderRightColor: '#e5e7eb' },
   cellQty: { width: 64, paddingHorizontal: 8, paddingVertical: 10, borderRightWidth: 1, borderRightColor: '#e5e7eb', justifyContent: 'center' },
   cellBrand: { width: 90, paddingHorizontal: 8, paddingVertical: 10, justifyContent: 'center' },
+  cellDrag: { width: 36 },
 
   checkbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#d1d5db', marginRight: 10, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
   checkmark: { color: 'white', fontSize: 12, fontWeight: 'bold' },
@@ -537,7 +512,10 @@ const styles = StyleSheet.create({
   cellText: { fontSize: 14, color: '#374151' },
   cellTextChecked: { color: '#86efac', textDecorationLine: 'line-through' },
 
-  sectionRow: { backgroundColor: '#f1f5f9', paddingVertical: 6, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  dragHandle: { width: 36, alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
+  dragIcon: { fontSize: 18, color: '#d1d5db', fontWeight: '700' },
+
+  sectionRow: { backgroundColor: '#f8fafc', paddingVertical: 6, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   sectionText: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 },
 
   emptyRow: { padding: 40, alignItems: 'center' },
@@ -552,7 +530,6 @@ const styles = StyleSheet.create({
   actionDelete: { backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', width: 75, alignSelf: 'stretch' },
   actionEdit: { backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', width: 75, alignSelf: 'stretch' },
   actionText: { color: 'white', fontWeight: '600', fontSize: 13 },
-  categoryTag: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: 'white', padding: 24, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
