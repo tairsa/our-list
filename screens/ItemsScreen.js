@@ -199,12 +199,34 @@ export default function ItemsScreen({ route, navigation }) {
     setAdding(true);
 
     const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
-      .from('items')
-      .insert({ list_id: listId, name: newItemName.trim(), is_checked: false, added_by: user.id });
 
-    if (error) Alert.alert('Error', error.message);
-    else { setNewItemName(''); fetchItems(); }
+    // Insert and get the new item's ID back
+    const { data: newItem, error } = await supabase
+      .from('items')
+      .insert({ list_id: listId, name: newItemName.trim(), is_checked: false, added_by: user.id })
+      .select()
+      .single();
+
+    console.log('Insert result:', JSON.stringify(newItem), JSON.stringify(error));
+
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      setNewItemName('');
+      fetchItems();
+
+      if (newItem?.id) {
+        console.log('Calling categorize-item for:', newItem.name, newItem.id);
+        supabase.functions.invoke('categorize-item', {
+          body: { item_name: newItem.name, item_id: newItem.id },
+        }).then(({ data, error: fnErr }) => {
+          console.log('Categorize response:', JSON.stringify(data), JSON.stringify(fnErr));
+        }).catch((err) => console.log('Categorize fetch error:', err));
+      } else {
+        console.log('newItem is null — skipping categorization');
+      }
+    }
+
     setAdding(false);
   }
 
@@ -304,9 +326,14 @@ export default function ItemsScreen({ route, navigation }) {
             <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
               {isChecked && <Text style={styles.checkmark}>✓</Text>}
             </View>
-            <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
-              {item.name}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
+                {item.name}
+              </Text>
+              {item.category && item.category !== 'ללא קטגוריה' && (
+                <Text style={styles.categoryTag}>{item.category}</Text>
+              )}
+            </View>
           </View>
           <View style={styles.cellQty}>
             <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.quantity || ''}</Text>
@@ -525,6 +552,7 @@ const styles = StyleSheet.create({
   actionDelete: { backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', width: 75, alignSelf: 'stretch' },
   actionEdit: { backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', width: 75, alignSelf: 'stretch' },
   actionText: { color: 'white', fontWeight: '600', fontSize: 13 },
+  categoryTag: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: 'white', padding: 24, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
