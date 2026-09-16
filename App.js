@@ -9,6 +9,7 @@ import LoginScreen from './screens/LoginScreen';
 import ListsScreen from './screens/ListsScreen';
 import ItemsScreen from './screens/ItemsScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import FriendsScreen from './screens/FriendsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -61,6 +62,11 @@ export default function App() {
             name="Profile"
             component={ProfileScreen}
             options={{ title: 'Profile' }}
+          />
+          <Stack.Screen
+            name="Friends"
+            component={FriendsScreen}
+            options={{ title: 'Friends' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

@@ -13,31 +13,64 @@ import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
   const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState('');
+  // On login, this field accepts either email or username
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Resolves an email address from the identifier (email or username)
+  async function resolveEmail(input) {
+    const trimmed = input.trim();
+
+    // If it contains @, it's already an email
+    if (trimmed.includes('@')) return trimmed;
+
+    // Otherwise call our SECURITY DEFINER RPC to look up email from auth.users via username
+    const { data, error } = await supabase
+      .rpc('get_email_by_username', { p_username: trimmed });
+
+    if (error || !data) {
+      throw new Error('No account found with that username.');
+    }
+
+    return data;
+  }
+
   async function handleSubmit() {
     setLoading(true);
 
-    if (isSignUp) {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name } },
-      });
-      if (error) {
-        Alert.alert('Error', error.message);
+    try {
+      if (isSignUp) {
+        // Sign up always requires an actual email
+        if (!identifier.includes('@')) {
+          Alert.alert('Email required', 'Please enter your email address to sign up.');
+          setLoading(false);
+          return;
+        }
+
+        const { error } = await supabase.auth.signUp({
+          email: identifier.trim(),
+          password,
+          options: { data: { full_name: name } },
+        });
+
+        if (error) {
+          Alert.alert('Error', error.message);
+        } else {
+          Alert.alert(
+            'Check your email 📬',
+            'We sent you a confirmation link. Please verify your email before logging in.'
+          );
+        }
       } else {
-        Alert.alert(
-          'Check your email 📬',
-          'We sent you a confirmation link. Please verify your email before logging in.'
-        );
+        // Login: resolve email from email or username
+        const email = await resolveEmail(identifier);
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) Alert.alert('Login failed', error.message);
       }
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) Alert.alert('Error', error.message);
+    } catch (err) {
+      Alert.alert('Error', err.message);
     }
 
     setLoading(false);
@@ -63,11 +96,12 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
+        placeholder={isSignUp ? 'Email' : 'Email or username'}
+        value={identifier}
+        onChangeText={setIdentifier}
         autoCapitalize="none"
-        keyboardType="email-address"
+        keyboardType={isSignUp ? 'email-address' : 'default'}
+        autoCorrect={false}
       />
 
       <TextInput
@@ -88,7 +122,7 @@ export default function LoginScreen() {
         </Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
+      <TouchableOpacity onPress={() => { setIsSignUp(!isSignUp); setIdentifier(''); }}>
         <Text style={styles.toggle}>
           {isSignUp ? 'Already have an account? Login' : "Don't have an account? Sign Up"}
         </Text>
