@@ -372,6 +372,7 @@ export default function ItemsScreen({ route, navigation }) {
           renderItem={renderRow}
           onDragEnd={handleDragEnd}
           keyboardShouldPersistTaps="handled"
+          style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 120 }}
           ListEmptyComponent={
             <View style={styles.emptyRow}>

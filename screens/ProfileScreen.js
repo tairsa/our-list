@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
+import { crossAlert } from '../lib/alert';
 
 export default function ProfileScreen() {
   const [user, setUser] = useState(null);
@@ -36,7 +37,7 @@ export default function ProfileScreen() {
   }
 
   function pickImage() {
-    Alert.alert('Change Photo', 'Choose a source', [
+    crossAlert('Change Photo', 'Choose a source', [
       { text: 'Camera', onPress: openCamera },
       { text: 'Photo Library', onPress: openLibrary },
       { text: 'Cancel', style: 'cancel' },
@@ -46,7 +47,7 @@ export default function ProfileScreen() {
   async function openLibrary() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow access to your photo library.');
+      crossAlert('Permission needed', 'Please allow access to your photo library.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -61,7 +62,7 @@ export default function ProfileScreen() {
   async function openCamera() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please allow access to your camera.');
+      crossAlert('Permission needed', 'Please allow access to your camera.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -95,7 +96,7 @@ export default function ProfileScreen() {
 
       setProfile(prev => ({ ...prev, avatar_url: data.publicUrl }));
     } catch (err) {
-      Alert.alert('Upload failed', err.message);
+      crossAlert('Upload failed', err.message);
     } finally {
       setUploading(false);
     }
@@ -105,7 +106,7 @@ export default function ProfileScreen() {
     // Validate username
     const trimmedUsername = username.trim().toLowerCase();
     if (trimmedUsername && !/^[a-z0-9_]{3,20}$/.test(trimmedUsername)) {
-      Alert.alert(
+      crossAlert(
         'Invalid username',
         'Username must be 3–20 characters and can only contain letters, numbers and underscores (_).'
       );
@@ -125,25 +126,25 @@ export default function ProfileScreen() {
     if (error) {
       // Supabase returns 23505 for unique constraint violations
       if (error.code === '23505') {
-        Alert.alert('Username taken', 'That username is already in use. Please choose another one.');
+        crossAlert('Username taken', 'That username is already in use. Please choose another one.');
       } else {
-        Alert.alert('Error', error.message);
+        crossAlert('Error', error.message);
       }
     } else {
       setUsername(trimmedUsername);
-      Alert.alert('Saved!', 'Your profile has been updated.');
+      crossAlert('Saved!', 'Your profile has been updated.');
     }
     setSaving(false);
   }
 
   async function handleSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+    crossAlert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign Out', style: 'destructive',
         onPress: async () => {
           const { error } = await supabase.auth.signOut();
-          if (error) Alert.alert('Error', error.message);
+          if (error) crossAlert('Error', error.message);
         },
       },
     ]);
