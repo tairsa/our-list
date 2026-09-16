@@ -5,7 +5,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from './lib/supabase';
+
 import LoginScreen from './screens/LoginScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import ListsScreen from './screens/ListsScreen';
 import ItemsScreen from './screens/ItemsScreen';
 import ProfileScreen from './screens/ProfileScreen';
@@ -26,6 +28,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Still figuring out if there's a session
   if (session === undefined) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -36,14 +39,21 @@ export default function App() {
     );
   }
 
+  // Not logged in — auth flow (Login + Forgot Password)
   if (!session) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <LoginScreen />
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
       </GestureHandlerRootView>
     );
   }
 
+  // Logged in — main app
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <NavigationContainer>
