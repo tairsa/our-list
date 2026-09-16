@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView, FlatList,
+  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import DraggableFlatList from 'react-native-draggable-flatlist';
 import { supabase } from '../lib/supabase';
 import { crossAlert } from '../lib/alert';
 
@@ -78,9 +77,7 @@ export default function ItemsScreen({ route, navigation }) {
 
   useEffect(() => {
     async function init() {
-      console.log('[init] starting, listId:', listId);
       const { data: { user } } = await supabase.auth.getUser();
-      console.log('[init] user:', user?.id ?? 'null');
       setCurrentUser(user);
 
       const { data: membership } = await supabase
@@ -114,7 +111,6 @@ export default function ItemsScreen({ route, navigation }) {
   }, [navigation]);
 
   async function fetchItems() {
-    console.log('[fetchItems] called, listId:', listId);
     const { data, error } = await supabase
       .from('items')
       .select('*')
@@ -122,12 +118,9 @@ export default function ItemsScreen({ route, navigation }) {
       .order('position', { ascending: true })
       .order('created_at', { ascending: true });
 
-    console.log('[fetchItems] result — data:', data?.length ?? 'null', 'error:', error?.message ?? 'none');
     if (error) { crossAlert('Error', error.message); return; }
-    const sections = buildSections(data);
-    console.log('[fetchItems] listData rows:', sections.length);
     setItems(data);
-    setListData(sections);
+    setListData(buildSections(data));
   }
 
   // ── Drag to reorder ───────────────────────────────────────
@@ -226,10 +219,8 @@ export default function ItemsScreen({ route, navigation }) {
 
   async function addItem() {
     if (!newItemName.trim()) return;
-    console.log('[addItem] called with:', newItemName.trim());
     setAdding(true);
     const { data: { user } } = await supabase.auth.getUser();
-    console.log('[addItem] user id:', user?.id);
 
     // Position: send to end of unchecked items
     const uncheckedCount = items.filter(i => !i.is_checked).length;
@@ -240,7 +231,6 @@ export default function ItemsScreen({ route, navigation }) {
       .select()
       .single();
 
-    console.log('[addItem] insert result — newItem:', newItem?.id ?? 'null', 'error:', error?.message ?? 'none');
     if (error) {
       crossAlert('Error', error.message);
     } else {
@@ -304,7 +294,6 @@ export default function ItemsScreen({ route, navigation }) {
   }
 
   function renderRow({ item, drag, isActive }) {
-    console.log('[renderRow] type:', item.type, 'name:', item.name ?? item.category);
     // Section headers
     if (item.type === 'header') {
       return (
@@ -340,7 +329,7 @@ export default function ItemsScreen({ route, navigation }) {
             <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
               {isChecked && <Text style={styles.checkmark}>✓</Text>}
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'center' }}>
               <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
                 {item.name}
               </Text>
@@ -352,8 +341,8 @@ export default function ItemsScreen({ route, navigation }) {
           <View style={styles.cellBrand}>
             <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.brand || ''}</Text>
           </View>
-          {/* Drag handle — only for unchecked items on native */}
-          {!isChecked && Platform.OS !== 'web' && (
+          {/* Drag handle — only when drag is available (DraggableFlatList) */}
+          {!isChecked && drag != null && (
             <TouchableOpacity onLongPress={drag} style={styles.dragHandle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.dragIcon}>≡</Text>
             </TouchableOpacity>
@@ -377,19 +366,23 @@ export default function ItemsScreen({ route, navigation }) {
           <View style={styles.cellDrag} />
         </View>
 
-        <FlatList
-          data={listData}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => renderRow({ item, drag: null, isActive: false })}
-          keyboardShouldPersistTaps="handled"
+        <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 120 }}
-          ListEmptyComponent={
+          keyboardShouldPersistTaps="handled"
+        >
+          {listData.length === 0 ? (
             <View style={styles.emptyRow}>
               <Text style={styles.empty}>No items yet. Add your first one below!</Text>
             </View>
-          }
-        />
+          ) : (
+            listData.map(item => (
+              <View key={item.id}>
+                {renderRow({ item, drag: null, isActive: false })}
+              </View>
+            ))
+          )}
+        </ScrollView>
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
@@ -519,8 +512,8 @@ const styles = StyleSheet.create({
   cellDrag: { width: 36 },
 
   checkbox: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#d1d5db', marginRight: 10, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  checkmark: { color: 'white', fontSize: 12, fontWeight: 'bold' },
-  itemName: { fontSize: 15, color: '#111', flex: 1 },
+  checkmark: { color: 'white', fontSize: 12, fontWeight: 'bold', lineHeight: 16 },
+  itemName: { fontSize: 16, color: '#111' },
   itemNameChecked: { color: '#86efac', textDecorationLine: 'line-through' },
   cellText: { fontSize: 14, color: '#374151' },
   cellTextChecked: { color: '#86efac', textDecorationLine: 'line-through' },
