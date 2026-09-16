@@ -15,6 +15,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { crossAlert } from '../lib/alert';
 
 const COLORS = [
   '#22c55e', // green
@@ -96,7 +97,7 @@ export default function ListsScreen({ navigation }) {
       `);
 
     if (error) {
-      Alert.alert('Error', error.message);
+      crossAlert('Error', error.message);
     } else {
       const formatted = data.map(entry => ({
         ...entry.lists,
@@ -117,7 +118,7 @@ export default function ListsScreen({ navigation }) {
       .insert({ name: newListName.trim(), created_by: user.id, color: newListColor });
 
     if (error) {
-      Alert.alert('Error', error.message);
+      crossAlert('Error', error.message);
     } else {
       setNewListName('');
       setNewListColor(COLORS[0]);
@@ -133,13 +134,13 @@ export default function ListsScreen({ navigation }) {
 
   async function handleDelete(item) {
     closeSwipeable(item.id);
-    Alert.alert('Delete List', `Are you sure you want to delete "${item.name}" for everyone?`, [
+    crossAlert('Delete List', `Are you sure you want to delete "${item.name}" for everyone?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           const { error } = await supabase.from('lists').delete().eq('id', item.id);
-          if (error) Alert.alert('Error', error.message);
+          if (error) crossAlert('Error', error.message);
           else fetchLists();
         },
       },
@@ -161,7 +162,7 @@ export default function ListsScreen({ navigation }) {
       .update({ name: editName.trim(), color: editColor })
       .eq('id', editingList.id);
 
-    if (error) Alert.alert('Error', error.message);
+    if (error) crossAlert('Error', error.message);
     else {
       setEditModalVisible(false);
       setEditingList(null);
@@ -174,21 +175,21 @@ export default function ListsScreen({ navigation }) {
 
     if (item.role === 'manager') {
       const { data, error } = await supabase.rpc('count_list_managers', { p_list_id: item.id });
-      if (error) { Alert.alert('Error', error.message); return; }
+      if (error) { crossAlert('Error', error.message); return; }
       if (data === 1) {
-        Alert.alert('Last Manager', 'You are the only manager of this list. Delete the list or promote another member first.', [{ text: 'OK' }]);
+        crossAlert('Last Manager', 'You are the only manager of this list. Delete the list or promote another member first.', [{ text: 'OK' }]);
         return;
       }
     }
 
-    Alert.alert('Leave List', `Are you sure you want to leave "${item.name}"?`, [
+    crossAlert('Leave List', `Are you sure you want to leave "${item.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Leave', style: 'destructive',
         onPress: async () => {
           const { data: { user } } = await supabase.auth.getUser();
           const { error } = await supabase.from('list_members').delete().eq('list_id', item.id).eq('user_id', user.id);
-          if (error) Alert.alert('Error', error.message);
+          if (error) crossAlert('Error', error.message);
           else fetchLists();
         },
       },

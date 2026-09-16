@@ -6,6 +6,7 @@ import {
 import { Swipeable } from 'react-native-gesture-handler';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { supabase } from '../lib/supabase';
+import { crossAlert } from '../lib/alert';
 
 // Fixed category order for display
 const CATEGORY_ORDER = [
@@ -118,7 +119,7 @@ export default function ItemsScreen({ route, navigation }) {
       .order('position', { ascending: true })
       .order('created_at', { ascending: true });
 
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { crossAlert('Error', error.message); return; }
     setItems(data);
     setListData(buildSections(data));
   }
@@ -187,29 +188,29 @@ export default function ItemsScreen({ route, navigation }) {
   async function addMemberToList(friendId) {
     setAddingFriend(true);
     const { error } = await supabase.from('list_members').insert({ list_id: listId, user_id: friendId, role: 'member' });
-    if (error) Alert.alert('Error', error.message);
+    if (error) crossAlert('Error', error.message);
     else { await fetchMembers(); await fetchFriendsNotOnList(); }
     setAddingFriend(false);
   }
 
   async function removeMember(userId, name) {
     if (userId === currentUser?.id) return;
-    Alert.alert('Remove Member', `Remove ${name} from this list?`, [
+    crossAlert('Remove Member', `Remove ${name} from this list?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => {
         const { error } = await supabase.rpc('remove_list_member', { p_list_id: listId, p_user_id: userId });
-        if (error) Alert.alert('Error', error.message);
+        if (error) crossAlert('Error', error.message);
         else { await fetchMembers(); await fetchFriendsNotOnList(); }
       }},
     ]);
   }
 
   async function promoteToManager(userId, name) {
-    Alert.alert('Promote to Manager', `Make ${name} a manager of this list?`, [
+    crossAlert('Promote to Manager', `Make ${name} a manager of this list?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Promote', onPress: async () => {
         const { error } = await supabase.rpc('promote_list_member', { p_list_id: listId, p_user_id: userId });
-        if (error) Alert.alert('Error', error.message);
+        if (error) crossAlert('Error', error.message);
         else await fetchMembers();
       }},
     ]);
@@ -232,7 +233,7 @@ export default function ItemsScreen({ route, navigation }) {
       .single();
 
     if (error) {
-      Alert.alert('Error', error.message);
+      crossAlert('Error', error.message);
     } else {
       setNewItemName('');
       fetchItems();
@@ -247,7 +248,7 @@ export default function ItemsScreen({ route, navigation }) {
 
   async function toggleItem(item) {
     const { error } = await supabase.from('items').update({ is_checked: !item.is_checked }).eq('id', item.id);
-    if (error) Alert.alert('Error', error.message);
+    if (error) crossAlert('Error', error.message);
     else fetchItems();
   }
 
@@ -265,17 +266,17 @@ export default function ItemsScreen({ route, navigation }) {
   async function saveEdit() {
     if (!editName.trim()) return;
     const { error } = await supabase.from('items').update({ name: editName.trim(), quantity: editQuantity.trim() || null, brand: editBrand.trim() || null }).eq('id', editingItem.id);
-    if (error) Alert.alert('Error', error.message);
+    if (error) crossAlert('Error', error.message);
     else { setEditModalVisible(false); setEditingItem(null); fetchItems(); }
   }
 
   async function handleDelete(item) {
     closeSwipeable(item.id);
-    Alert.alert('Delete Item', `Remove "${item.name}" from the list?`, [
+    crossAlert('Delete Item', `Remove "${item.name}" from the list?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
         const { error } = await supabase.from('items').delete().eq('id', item.id);
-        if (error) Alert.alert('Error', error.message);
+        if (error) crossAlert('Error', error.message);
         else fetchItems();
       }},
     ]);
@@ -494,7 +495,7 @@ export default function ItemsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
 
-  tableWrapper: { flex: 1, margin: 16, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', overflow: 'hidden', backgroundColor: 'white' },
+  tableWrapper: { flex: 1, margin: 16, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', overflow: Platform.OS === 'web' ? 'visible' : 'hidden', backgroundColor: 'white' },
   tableHeader: { flexDirection: 'row', borderBottomWidth: 2, borderBottomColor: '#e5e7eb' },
   headerText: { fontSize: 11, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.6 },
   tableRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', minHeight: 52 },
