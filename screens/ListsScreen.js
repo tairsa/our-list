@@ -278,6 +278,7 @@ export default function ListsScreen({ navigation }) {
             <Text style={styles.friendsButtonText}>🚪</Text>
           </TouchableOpacity>
         </View>
+      </View>
 
       {/* New List FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
