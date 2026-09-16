@@ -4,7 +4,7 @@ import {
   StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView, FlatList,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
+import DraggableFlatList from 'react-native-draggable-flatlist';
 import { supabase } from '../lib/supabase';
 import { crossAlert } from '../lib/alert';
 
@@ -78,7 +78,9 @@ export default function ItemsScreen({ route, navigation }) {
 
   useEffect(() => {
     async function init() {
+      console.log('[init] starting, listId:', listId);
       const { data: { user } } = await supabase.auth.getUser();
+      console.log('[init] user:', user?.id ?? 'null');
       setCurrentUser(user);
 
       const { data: membership } = await supabase
@@ -112,6 +114,7 @@ export default function ItemsScreen({ route, navigation }) {
   }, [navigation]);
 
   async function fetchItems() {
+    console.log('[fetchItems] called, listId:', listId);
     const { data, error } = await supabase
       .from('items')
       .select('*')
@@ -119,9 +122,12 @@ export default function ItemsScreen({ route, navigation }) {
       .order('position', { ascending: true })
       .order('created_at', { ascending: true });
 
+    console.log('[fetchItems] result — data:', data?.length ?? 'null', 'error:', error?.message ?? 'none');
     if (error) { crossAlert('Error', error.message); return; }
+    const sections = buildSections(data);
+    console.log('[fetchItems] listData rows:', sections.length);
     setItems(data);
-    setListData(buildSections(data));
+    setListData(sections);
   }
 
   // ── Drag to reorder ───────────────────────────────────────
@@ -220,8 +226,10 @@ export default function ItemsScreen({ route, navigation }) {
 
   async function addItem() {
     if (!newItemName.trim()) return;
+    console.log('[addItem] called with:', newItemName.trim());
     setAdding(true);
     const { data: { user } } = await supabase.auth.getUser();
+    console.log('[addItem] user id:', user?.id);
 
     // Position: send to end of unchecked items
     const uncheckedCount = items.filter(i => !i.is_checked).length;
@@ -232,6 +240,7 @@ export default function ItemsScreen({ route, navigation }) {
       .select()
       .single();
 
+    console.log('[addItem] insert result — newItem:', newItem?.id ?? 'null', 'error:', error?.message ?? 'none');
     if (error) {
       crossAlert('Error', error.message);
     } else {
@@ -295,7 +304,8 @@ export default function ItemsScreen({ route, navigation }) {
   }
 
   function renderRow({ item, drag, isActive }) {
-    // Section headers are not draggable
+    console.log('[renderRow] type:', item.type, 'name:', item.name ?? item.category);
+    // Section headers
     if (item.type === 'header') {
       return (
         <View style={[styles.sectionRow, item.isCheckedHeader && { backgroundColor: '#f0fdf4' }]}>
@@ -305,54 +315,55 @@ export default function ItemsScreen({ route, navigation }) {
     }
 
     const isChecked = item.is_checked;
-    return (
-      <ScaleDecorator>
-        <Swipeable
-          ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
-          renderLeftActions={() => (
-            <TouchableOpacity style={styles.actionDelete} onPress={() => handleDelete(item)}>
-              <Text style={styles.actionText}>Delete</Text>
-            </TouchableOpacity>
-          )}
-          renderRightActions={() => (
-            <TouchableOpacity style={styles.actionEdit} onPress={() => handleEdit(item)}>
-              <Text style={styles.actionText}>Edit</Text>
-            </TouchableOpacity>
-          )}
-          overshootLeft={false}
-          overshootRight={false}
-        >
-          <TouchableOpacity
-            style={[styles.tableRow, isChecked && styles.tableRowChecked, isActive && styles.tableRowDragging]}
-            onPress={() => toggleItem(item)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.cellName}>
-              <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
-                {isChecked && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
-                  {item.name}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.cellQty}>
-              <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.quantity || ''}</Text>
-            </View>
-            <View style={styles.cellBrand}>
-              <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.brand || ''}</Text>
-            </View>
-            {/* Drag handle — only for unchecked items */}
-            {!isChecked && (
-              <TouchableOpacity onLongPress={drag} style={styles.dragHandle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Text style={styles.dragIcon}>≡</Text>
-              </TouchableOpacity>
-            )}
+    const inner = (
+      <Swipeable
+        ref={(ref) => { swipeableRefs.current[item.id] = ref; }}
+        renderLeftActions={() => (
+          <TouchableOpacity style={styles.actionDelete} onPress={() => handleDelete(item)}>
+            <Text style={styles.actionText}>Delete</Text>
           </TouchableOpacity>
-        </Swipeable>
-      </ScaleDecorator>
+        )}
+        renderRightActions={() => (
+          <TouchableOpacity style={styles.actionEdit} onPress={() => handleEdit(item)}>
+            <Text style={styles.actionText}>Edit</Text>
+          </TouchableOpacity>
+        )}
+        overshootLeft={false}
+        overshootRight={false}
+      >
+        <TouchableOpacity
+          style={[styles.tableRow, isChecked && styles.tableRowChecked, isActive && styles.tableRowDragging]}
+          onPress={() => toggleItem(item)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.cellName}>
+            <View style={[styles.checkbox, isChecked && { backgroundColor: listColor, borderColor: listColor }]}>
+              {isChecked && <Text style={styles.checkmark}>✓</Text>}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.itemName, isChecked && styles.itemNameChecked]} numberOfLines={2}>
+                {item.name}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.cellQty}>
+            <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.quantity || ''}</Text>
+          </View>
+          <View style={styles.cellBrand}>
+            <Text style={[styles.cellText, isChecked && styles.cellTextChecked]}>{item.brand || ''}</Text>
+          </View>
+          {/* Drag handle — only for unchecked items on native */}
+          {!isChecked && Platform.OS !== 'web' && (
+            <TouchableOpacity onLongPress={drag} style={styles.dragHandle} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={styles.dragIcon}>≡</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      </Swipeable>
     );
+
+    // Return inner directly — ScaleDecorator was making items invisible
+    return inner;
   }
 
   return (
@@ -366,36 +377,19 @@ export default function ItemsScreen({ route, navigation }) {
           <View style={styles.cellDrag} />
         </View>
 
-        {Platform.OS === 'web' ? (
-          <FlatList
-            data={listData}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item, drag, isActive }) => renderRow({ item, drag: () => {}, isActive: false })}
-            keyboardShouldPersistTaps="handled"
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 120 }}
-            ListEmptyComponent={
-              <View style={styles.emptyRow}>
-                <Text style={styles.empty}>No items yet. Add your first one below!</Text>
-              </View>
-            }
-          />
-        ) : (
-          <DraggableFlatList
-            data={listData}
-            keyExtractor={(item) => item.id}
-            renderItem={renderRow}
-            onDragEnd={handleDragEnd}
-            keyboardShouldPersistTaps="handled"
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 120 }}
-            ListEmptyComponent={
-              <View style={styles.emptyRow}>
-                <Text style={styles.empty}>No items yet. Add your first one below!</Text>
-              </View>
-            }
-          />
-        )}
+        <FlatList
+          data={listData}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => renderRow({ item, drag: null, isActive: false })}
+          keyboardShouldPersistTaps="handled"
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          ListEmptyComponent={
+            <View style={styles.emptyRow}>
+              <Text style={styles.empty}>No items yet. Add your first one below!</Text>
+            </View>
+          }
+        />
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
