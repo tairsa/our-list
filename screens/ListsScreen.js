@@ -270,14 +270,9 @@ export default function ListsScreen({ navigation }) {
           )}
         </TouchableOpacity>
         <Text style={styles.title}>Our List 🛒</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity style={styles.friendsButton} onPress={() => navigation.navigate('Friends')}>
-            <Text style={styles.friendsButtonText}>👥</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.friendsButton} onPress={handleLogout}>
-            <Text style={styles.friendsButtonText}>🚪</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.friendsButton} onPress={() => navigation.navigate('Friends')}>
+          <Text style={styles.friendsButtonText}>👥</Text>
+        </TouchableOpacity>
       </View>
 
       {/* New List FAB */}

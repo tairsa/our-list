@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput,
-  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView,
+  StyleSheet, Alert, KeyboardAvoidingView, Platform, Modal, Image, Keyboard, ScrollView, FlatList,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
@@ -366,20 +366,36 @@ export default function ItemsScreen({ route, navigation }) {
           <View style={styles.cellDrag} />
         </View>
 
-        <DraggableFlatList
-          data={listData}
-          keyExtractor={(item) => item.id}
-          renderItem={renderRow}
-          onDragEnd={handleDragEnd}
-          keyboardShouldPersistTaps="handled"
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 120 }}
-          ListEmptyComponent={
-            <View style={styles.emptyRow}>
-              <Text style={styles.empty}>No items yet. Add your first one below!</Text>
-            </View>
-          }
-        />
+        {Platform.OS === 'web' ? (
+          <FlatList
+            data={listData}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item, drag, isActive }) => renderRow({ item, drag: () => {}, isActive: false })}
+            keyboardShouldPersistTaps="handled"
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 120 }}
+            ListEmptyComponent={
+              <View style={styles.emptyRow}>
+                <Text style={styles.empty}>No items yet. Add your first one below!</Text>
+              </View>
+            }
+          />
+        ) : (
+          <DraggableFlatList
+            data={listData}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRow}
+            onDragEnd={handleDragEnd}
+            keyboardShouldPersistTaps="handled"
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 120 }}
+            ListEmptyComponent={
+              <View style={styles.emptyRow}>
+                <Text style={styles.empty}>No items yet. Add your first one below!</Text>
+              </View>
+            }
+          />
+        )}
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
