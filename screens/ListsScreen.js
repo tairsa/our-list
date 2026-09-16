@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 
 const COLORS = [
@@ -32,6 +34,8 @@ export default function ListsScreen({ navigation }) {
   const [newListName, setNewListName] = useState('');
   const [newListColor, setNewListColor] = useState(COLORS[0]);
   const [creating, setCreating] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [userInitial, setUserInitial] = useState('?');
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingList, setEditingList] = useState(null);
@@ -42,7 +46,40 @@ export default function ListsScreen({ navigation }) {
 
   useEffect(() => {
     fetchLists();
+    fetchProfile();
   }, []);
+
+  // Re-fetch profile every time the screen comes into focus
+  // so the avatar updates immediately after returning from ProfileScreen
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [])
+  );
+
+  async function fetchProfile() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Set initial letter from email as fallback
+    setUserInitial((user.email?.[0] ?? '?').toUpperCase());
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('avatar_url, display_name')
+      .eq('id', user.id)
+      .single();
+
+    if (data?.avatar_url) {
+      setAvatarUrl(data.avatar_url);
+    } else {
+      setAvatarUrl(null);
+    }
+
+    if (data?.display_name) {
+      setUserInitial(data.display_name[0].toUpperCase());
+    }
+  }
 
   async function fetchLists() {
     const { data, error } = await supabase
@@ -218,11 +255,25 @@ export default function ListsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitial}>{userInitial}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
         <Text style={styles.title}>Our List 🛒</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
-          <Text style={styles.addButtonText}>+ New List</Text>
+        <TouchableOpacity style={styles.friendsButton} onPress={() => navigation.navigate('Friends')}>
+          <Text style={styles.friendsButtonText}>👥</Text>
         </TouchableOpacity>
       </View>
+
+      {/* New List FAB */}
+      <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
+        <Text style={styles.fabText}>+ New List</Text>
+      </TouchableOpacity>
 
       <FlatList
         data={lists}
@@ -289,6 +340,14 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#eee' },
   title: { fontSize: 24, fontWeight: 'bold' },
   addButton: { backgroundColor: '#22c55e', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  fab: { position: 'absolute', bottom: 28, alignSelf: 'center', backgroundColor: '#22c55e', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 30, shadowColor: '#22c55e', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6, zIndex: 10 },
+  fabText: { color: 'white', fontWeight: '700', fontSize: 16 },
+  friendsButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f3f4f6', justifyContent: 'center', alignItems: 'center' },
+  friendsButtonText: { fontSize: 18 },
+  profileButton: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden' },
+  avatarImage: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: '#e2e8f0' },
+  avatarPlaceholder: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center' },
+  avatarInitial: { color: 'white', fontWeight: '700', fontSize: 15 },
   addButtonText: { color: 'white', fontWeight: '600' },
   listItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', marginHorizontal: 16, marginTop: 12, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2, overflow: 'hidden' },
   colorBar: { width: 6, alignSelf: 'stretch' },
