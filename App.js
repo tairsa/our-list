@@ -1,6 +1,6 @@
 import 'react-native-url-polyfill/auto';
 import { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Alert, Linking } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -15,6 +15,49 @@ import FriendsScreen from './screens/FriendsScreen';
 
 const Stack = createNativeStackNavigator();
 
+// Pull the token out of ourlist://invite/TOKEN
+function extractInviteToken(url) {
+  if (!url) return null;
+  const match = url.match(/ourlist:\/\/invite\/([a-zA-Z0-9-]+)/);
+  return match ? match[1] : null;
+}
+
+async function handleInviteLink(url) {
+  const token = extractInviteToken(url);
+  if (!token) return;
+
+  // Make sure the user is logged in before redeeming
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data, error } = await supabase.rpc('redeem_invite_link', { p_token: token });
+
+  if (error) {
+    Alert.alert('Error', error.message);
+    return;
+  }
+
+  switch (data) {
+    case 'ok':
+      Alert.alert('🎉 Connected!', 'You are now friends!');
+      break;
+    case 'expired':
+      Alert.alert('Link expired', 'This invite link has expired. Ask for a new one.');
+      break;
+    case 'already_used':
+      Alert.alert('Already used', 'This invite link has already been used.');
+      break;
+    case 'already_friends':
+      Alert.alert('Already friends', 'You are already friends with this person.');
+      break;
+    case 'self':
+      Alert.alert('Oops', "You can't add yourself as a friend.");
+      break;
+    default:
+      Alert.alert('Invalid link', 'This invite link is not valid.');
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState(undefined);
 
@@ -28,7 +71,21 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Still figuring out if there's a session
+  // Handle deep links — both cold start and while app is open
+  useEffect(() => {
+    // Cold start: app was opened by tapping the link
+    Linking.getInitialURL().then(url => {
+      if (url) handleInviteLink(url);
+    });
+
+    // Warm: app was already open when the link was tapped
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      handleInviteLink(url);
+    });
+
+    return () => sub.remove();
+  }, []);
+
   if (session === undefined) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -39,7 +96,6 @@ export default function App() {
     );
   }
 
-  // Not logged in — auth flow (Login + Forgot Password)
   if (!session) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -53,7 +109,6 @@ export default function App() {
     );
   }
 
-  // Logged in — main app
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <NavigationContainer>
