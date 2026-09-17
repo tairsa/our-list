@@ -101,6 +101,8 @@ const styles = StyleSheet.create({
   message: { fontSize: 15, textAlign: 'center', color: '#666', marginBottom: 32, lineHeight: 24 },
   emailText: { fontWeight: '600', color: '#333' },
   input: {
+    backgroundColor: '#fff',
+    color: '#000',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
