@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Alert, Modal, Image, Share, ActivityIndicator,
-  KeyboardAvoidingView, Platform, Keyboard,
+  KeyboardAvoidingView, Platform, Keyboard, Linking,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -185,15 +185,31 @@ export default function FriendsScreen() {
   }
 
   async function shareInvite() {
-    if (!currentProfile?.username) {
-      Alert.alert('Set a username first', 'Go to Profile and set a username so friends can find you.');
+    // Create a token in the database that expires in 30 minutes
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabase
+      .from('invite_links')
+      .insert({ created_by: currentUser.id, expires_at: expiresAt })
+      .select('token')
+      .single();
+
+    if (error) {
+      Alert.alert('Error', error.message);
       return;
     }
-    const message = `Hey! I use Our List to share shopping lists 🛒\nAdd me as a friend with username: @${currentProfile.username}`;
-    try {
+
+    const link = `https://ourlist-invite-c852zfp44-tair4.vercel.app/invite/${data.token}`;
+    const name = currentProfile?.display_name || currentProfile?.username || 'me';
+    const message = `Hey! Join me on Our List 🛒\n${name} is inviting you to be friends.\nTap this link to connect (valid for 30 min):\n${link}`;
+
+    // Try to open WhatsApp directly; fall back to the generic share sheet
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    const canOpen = await Linking.canOpenURL(whatsappUrl);
+    if (canOpen) {
+      await Linking.openURL(whatsappUrl);
+    } else {
       await Share.share({ message });
-    } catch (err) {
-      Alert.alert('Error', err.message);
     }
   }
 

@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "ourlist",
     "ios": {
       "supportsTablet": true
     },
@@ -17,7 +18,19 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "softwareKeyboardLayoutMode": "resize",
-      "package": "com.tairsa.ourlist"
+      "package": "com.tairsa.ourlist",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "ourlist"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
