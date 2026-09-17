@@ -199,7 +199,7 @@ export default function FriendsScreen() {
       return;
     }
 
-    const link = `https://ourlist-invite-c852zfp44-tair4.vercel.app/invite/${data.token}`;
+    const link = `https://ourlist-invite-c852zfp44-tair4.vercel.app/?token=${data.token}`;
     const name = currentProfile?.display_name || currentProfile?.username || 'me';
     const message = `Hey! Join me on Our List 🛒\n${name} is inviting you to be friends.\nTap this link to connect (valid for 30 min):\n${link}`;
 
